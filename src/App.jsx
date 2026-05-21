@@ -43,33 +43,33 @@ ${conversation}
 점수 기준: 공감·경청·되묻기 → 높음 / 조언·단답·자기얘기 → 낮음`;
 }
 
-async function callGemini(systemPrompt, messages) {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+async function callOpenAI(systemPrompt, messages) {
+  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
 
-  const contents = messages.map(m => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }]
-  }));
+  const msgs = [];
+  if (systemPrompt) msgs.push({ role: "system", content: systemPrompt });
+  messages.forEach(m => msgs.push({ role: m.role, content: m.content }));
 
-  const payload = { contents, generationConfig: { maxOutputTokens: 1000 } };
-  if (systemPrompt) payload.system_instruction = { parts: [{ text: systemPrompt }] };
-
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }
-  );
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      max_tokens: 1000,
+      messages: msgs,
+    }),
+  });
 
   if (!res.ok) {
     const err = await res.json();
-    throw new Error(err.error?.message || `Gemini 오류 ${res.status}`);
+    throw new Error(err.error?.message || `OpenAI 오류 ${res.status}`);
   }
 
   const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  return data.choices?.[0]?.message?.content || "";
 }
 
 export default function App() {
@@ -120,7 +120,7 @@ export default function App() {
     setMessages([]); setTurnCount(0); setFeedback(null);
     setError(null); setPhase("chat"); setLoading(true); stopSpeaking();
     try {
-      const text = await callGemini(SCENARIO.systemPrompt, [
+      const text = await callOpenAI(SCENARIO.systemPrompt, [
         { role: "user", content: "대화를 시작해주세요. 먼저 자연스럽게 말을 걸어주세요." }
       ]);
       setMessages([{ role: "assistant", content: text }]);
@@ -144,7 +144,7 @@ export default function App() {
     const isLast = newTurn >= SCENARIO.maxTurns;
     try {
       const sys = SCENARIO.systemPrompt + (isLast ? "\n\n지금은 마지막 대화입니다. 자연스럽게 마무리해주세요." : "");
-      const text = await callGemini(sys, newMsgs.map(m => ({ role: m.role, content: m.content })));
+      const text = await callOpenAI(sys, newMsgs.map(m => ({ role: m.role, content: m.content })));
       const updated = [...newMsgs, { role: "assistant", content: text }];
       setMessages(updated);
       speak(text);
@@ -156,7 +156,7 @@ export default function App() {
   async function getFeedback(msgs) {
     stopSpeaking(); setFeedbackLoading(true); setPhase("feedback");
     try {
-      const text = await callGemini("", [{ role: "user", content: buildFeedbackPrompt(msgs) }]);
+      const text = await callOpenAI("", [{ role: "user", content: buildFeedbackPrompt(msgs) }]);
       const clean = text.replace(/```json|```/g, "").trim();
       setFeedback(JSON.parse(clean));
     } catch (e) {
